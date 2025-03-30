@@ -1,0 +1,803 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NestJS Chat Engine</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+        .join-container {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            max-width: 400px;
+            margin: 0 auto;
+        }
+        .chat-container {
+            display: none;
+            flex-direction: column;
+            flex: 1;
+            gap: 20px;
+        }
+        .chat-header {
+            padding: 10px;
+            background-color: #f1f1f1;
+            border-radius: 5px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .messages-container {
+            flex: 1;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            padding: 10px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            position: relative;
+        }
+        .typing-indicator {
+            padding: 5px 10px;
+            font-style: italic;
+            color: #666;
+            position: absolute;
+            bottom: 0;
+            left: 10px;
+            background-color: rgba(255, 255, 255, 0.9);
+            border-radius: 5px;
+            display: none;
+        }
+        .message {
+            padding: 8px 12px;
+            border-radius: 5px;
+            max-width: 80%;
+            position: relative;
+        }
+        .message.sent {
+            background-color: #dcf8c6;
+            align-self: flex-end;
+        }
+        .message.received {
+            background-color: #f1f0f0;
+            align-self: flex-start;
+        }
+        .message.system {
+            background-color: #e6f7ff;
+            align-self: center;
+            font-style: italic;
+        }
+        .message-timestamp {
+            font-size: 0.7rem;
+            color: #999;
+            margin-top: 3px;
+            text-align: right;
+        }
+        .message-divider {
+            text-align: center;
+            color: #999;
+            font-size: 0.8rem;
+            margin: 10px 0;
+            position: relative;
+        }
+        .message-divider::before, .message-divider::after {
+            content: "";
+            position: absolute;
+            top: 50%;
+            width: 40%;
+            height: 1px;
+            background-color: #ddd;
+        }
+        .message-divider::before {
+            left: 0;
+        }
+        .message-divider::after {
+            right: 0;
+        }
+        .input-container {
+            display: flex;
+            gap: 10px;
+        }
+        input, button, select {
+            padding: 10px;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+        }
+        input {
+            flex: 1;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .user-list {
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            padding: 10px;
+            width: 200px;
+        }
+        .user-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 5px;
+        }
+        .user-status {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        .status-online {
+            background-color: #4CAF50;
+        }
+        .status-offline {
+            background-color: #ccc;
+        }
+        .status-typing {
+            background-color: #2196F3;
+        }
+        .flex-container {
+            display: flex;
+            gap: 20px;
+            flex: 1;
+        }
+        .create-room-container {
+            margin-top: 20px;
+            display: none;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .toggle-create-room {
+            margin-top: 10px;
+            text-align: center;
+            cursor: pointer;
+            color: #2196F3;
+        }
+        .toggle-create-room:hover {
+            text-decoration: underline;
+        }
+        .tabs {
+            display: flex;
+            margin-bottom: 10px;
+        }
+        .tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            background-color: #f1f1f1;
+        }
+        .tab.active {
+            background-color: #e1e1e1;
+            font-weight: bold;
+        }
+        .error-message {
+            color: #f44336;
+            font-size: 14px;
+            margin-top: 5px;
+            display: none;
+        }
+        .message-history-toggle {
+            font-size: 0.8rem;
+            cursor: pointer;
+            color: #2196F3;
+            margin-left: 10px;
+        }
+        .message-history-toggle:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>NestJS Chat Engine</h1>
+        
+        <div id="joinContainer" class="join-container">
+            <h2>Join a Chat Room</h2>
+            
+            <div class="tabs">
+                <div class="tab active" data-tab="join">Join Room</div>
+                <div class="tab" data-tab="create">Create Room</div>
+            </div>
+            
+            <div id="joinRoomTab">
+                <input type="text" id="username" placeholder="Username" required>
+                <select id="room"></select>
+                <button id="joinBtn">Join Chat</button>
+            </div>
+            
+            <div id="createRoomTab" style="display: none;">
+                <input type="text" id="createUsername" placeholder="Username" required>
+                <input type="text" id="roomId" placeholder="Room ID (letters, numbers, hyphens)" required>
+                <input type="text" id="roomName" placeholder="Room Name" required>
+                <button id="createRoomBtn">Create & Join Room</button>
+                <div id="createRoomError" class="error-message"></div>
+            </div>
+        </div>
+        
+        <div id="chatContainer" class="chat-container">
+            <div class="chat-header">
+                <div>Room: <span id="roomName"></span></div>
+                <div>
+                    <span id="messageHistoryToggle" class="message-history-toggle">Show message history</span>
+                    <button id="leaveBtn">Leave Room</button>
+                </div>
+            </div>
+            
+            <div class="flex-container">
+                <div class="messages-container" id="messages">
+                    <div id="typingIndicator" class="typing-indicator"></div>
+                </div>
+                
+                <div class="user-list">
+                    <h3>Users</h3>
+                    <ul id="usersList"></ul>
+                </div>
+            </div>
+            
+            <div class="input-container">
+                <input type="text" id="messageInput" placeholder="Type a message...">
+                <button id="sendBtn">Send</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const joinContainer = document.getElementById('joinContainer');
+            const chatContainer = document.getElementById('chatContainer');
+            const joinBtn = document.getElementById('joinBtn');
+            const createRoomBtn = document.getElementById('createRoomBtn');
+            const leaveBtn = document.getElementById('leaveBtn');
+            const sendBtn = document.getElementById('sendBtn');
+            const messageInput = document.getElementById('messageInput');
+            const messagesContainer = document.getElementById('messages');
+            const usersList = document.getElementById('usersList');
+            const roomNameDisplay = document.getElementById('roomName');
+            const roomSelect = document.getElementById('room');
+            let typingIndicator = document.getElementById('typingIndicator');
+            const tabs = document.querySelectorAll('.tab');
+            const joinRoomTab = document.getElementById('joinRoomTab');
+            const createRoomTab = document.getElementById('createRoomTab');
+            const createRoomError = document.getElementById('createRoomError');
+            const messageHistoryToggle = document.getElementById('messageHistoryToggle');
+            
+            let socket;
+            let username;
+            let currentRoom;
+            let typingTimeout;
+            let messageHistory = [];
+            let showMessageHistory = false;
+            
+            // Tab switching
+            tabs.forEach(tab => {
+                tab.addEventListener('click', () => {
+                    // Remove active class from all tabs
+                    tabs.forEach(t => t.classList.remove('active'));
+                    
+                    // Add active class to clicked tab
+                    tab.classList.add('active');
+                    
+                    // Show appropriate content
+                    const tabName = tab.getAttribute('data-tab');
+                    if (tabName === 'join') {
+                        joinRoomTab.style.display = 'block';
+                        createRoomTab.style.display = 'none';
+                    } else {
+                        joinRoomTab.style.display = 'none';
+                        createRoomTab.style.display = 'block';
+                    }
+                });
+            });
+            
+            // Message history toggle
+            messageHistoryToggle.addEventListener('click', () => {
+                showMessageHistory = !showMessageHistory;
+                messageHistoryToggle.textContent = showMessageHistory ? 'Hide message history' : 'Show message history';
+                
+                // Clear and regenerate messages
+                refreshMessages();
+            });
+            
+            // Format date for display
+            function formatMessageTime(timestamp) {
+                const date = new Date(timestamp);
+                return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            }
+            
+            function formatMessageDate(timestamp) {
+                const date = new Date(timestamp);
+                return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+            }
+            
+            // Refresh messages display
+            function refreshMessages() {
+                // Make sure typing indicator exists
+                if (!document.getElementById('typingIndicator')) {
+                    typingIndicator = document.createElement('div');
+                    typingIndicator.id = 'typingIndicator';
+                    typingIndicator.className = 'typing-indicator';
+                    typingIndicator.style.display = 'none';
+                    messagesContainer.appendChild(typingIndicator);
+                }
+                
+                // Clear messages container but keep typing indicator
+                const children = Array.from(messagesContainer.children);
+                for (const child of children) {
+                    if (child.id !== 'typingIndicator') {
+                        messagesContainer.removeChild(child);
+                    }
+                }
+                
+                // Show history or just current messages
+                if (showMessageHistory) {
+                    const messageGroups = groupMessagesByDate(messageHistory);
+                    
+                    // Display each group with date headers
+                    for (const group of messageGroups) {
+                        // Add date divider
+                        const divider = document.createElement('div');
+                        divider.className = 'message-divider';
+                        divider.textContent = group.date;
+                        messagesContainer.insertBefore(divider, typingIndicator);
+                        
+                        // Add messages for this date
+                        for (const message of group.messages) {
+                            addMessageToUI(message);
+                        }
+                    }
+                } else {
+                    // Just show the most recent 15 messages
+                    const recentMessages = messageHistory.slice(-15);
+                    for (const message of recentMessages) {
+                        addMessageToUI(message);
+                    }
+                }
+                
+                // Scroll to bottom
+                messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            }
+            
+            // Group messages by date for displaying with date headers
+            function groupMessagesByDate(messages) {
+                const groups = [];
+                const groupMap = {};
+                
+                for (const message of messages) {
+                    const date = formatMessageDate(message.timestamp);
+                    
+                    if (!groupMap[date]) {
+                        const group = { date, messages: [] };
+                        groups.push(group);
+                        groupMap[date] = group;
+                    }
+                    
+                    groupMap[date].messages.push(message);
+                }
+                
+                return groups;
+            }
+            
+            // Fetch available rooms
+            function fetchAvailableRooms() {
+                // If we already have a socket connection, use it
+                if (socket && socket.connected) {
+                    socket.emit('getRooms');
+                } else {
+                    // Initialize socket just for fetching rooms if not already connected
+                    if (!socket) {
+                        socket = io('http://localhost:3000');
+                        
+                        socket.on('connect', () => {
+                            console.log('Connected to server to fetch rooms');
+                            setupSocketListeners();
+                            socket.emit('getRooms');
+                        });
+                    }
+                }
+            }
+            
+            // Update room select
+            function updateRoomSelect(rooms) {
+                roomSelect.innerHTML = '';
+                
+                rooms.forEach(room => {
+                    const option = document.createElement('option');
+                    option.value = room.id;
+                    option.textContent = `${room.name} (created by ${room.createdBy})`;
+                    roomSelect.appendChild(option);
+                });
+            }
+            
+            // Setup socket listeners
+            function setupSocketListeners() {
+                // Remove any existing listeners to prevent duplicates
+                socket.off('message');
+                socket.off('messageHistory');
+                socket.off('roomData');
+                socket.off('userTyping');
+                socket.off('userStatus');
+                socket.off('availableRooms');
+                socket.off('roomCreated');
+                socket.off('roomCreateSuccess');
+                socket.off('error');
+                socket.off('disconnect');
+
+                // Listen for messages
+                socket.on('message', (message) => {
+                    // Add to message history
+                    messageHistory.push(message);
+                    
+                    // Only add to UI if within the current view
+                    if (!showMessageHistory || isToday(message.timestamp)) {
+                        addMessageToUI(message);
+                    } else {
+                        // If not in the current view, refresh all messages
+                        refreshMessages();
+                    }
+                });
+                
+                // Listen for message history
+                socket.on('messageHistory', (messages) => {
+                    messageHistory = messages;
+                    refreshMessages();
+                });
+                
+                // Listen for room data (users list)
+                socket.on('roomData', (data) => {
+                    updateUsersList(data.users);
+                });
+                
+                // Listen for typing events
+                socket.on('userTyping', (data) => {
+                    if (data.isTyping) {
+                        typingIndicator.textContent = `${data.username} is typing...`;
+                        typingIndicator.style.display = 'block';
+                    } else {
+                        typingIndicator.style.display = 'none';
+                    }
+                });
+                
+                // Listen for user status changes
+                socket.on('userStatus', (data) => {
+                    updateUserStatus(data);
+                });
+                
+                // Listen for available rooms
+                socket.on('availableRooms', (rooms) => {
+                    updateRoomSelect(rooms);
+                });
+                
+                // Listen for room created event
+                socket.on('roomCreated', (room) => {
+                    console.log('New room created:', room);
+                });
+                
+                // Listen for room creation success
+                socket.once('roomCreateSuccess', (room) => {
+                    currentRoom = room.id;
+                    roomNameDisplay.textContent = room.name;
+                    joinRoom(username, room.id);
+                });
+                
+                // Listen for errors
+                socket.on('error', (error) => {
+                    createRoomError.textContent = error.message;
+                    createRoomError.style.display = 'block';
+                    setTimeout(() => {
+                        createRoomError.style.display = 'none';
+                    }, 5000);
+                });
+                
+                // Handle disconnect
+                socket.on('disconnect', () => {
+                    console.log('Disconnected from server');
+                });
+            }
+            
+            // Check if a date is today
+            function isToday(dateString) {
+                const date = new Date(dateString);
+                const today = new Date();
+                return date.getDate() === today.getDate() &&
+                    date.getMonth() === today.getMonth() &&
+                    date.getFullYear() === today.getFullYear();
+            }
+            
+            // Initialize by fetching available rooms
+            fetchAvailableRooms();
+            
+            // Handle joining a room
+            joinBtn.addEventListener('click', () => {
+                username = document.getElementById('username').value.trim();
+                currentRoom = roomSelect.value;
+                
+                if (!username) {
+                    alert('Please enter a username');
+                    return;
+                }
+                
+                joinRoom(username, currentRoom);
+            });
+            
+            // Handle creating a room
+            createRoomBtn.addEventListener('click', () => {
+                username = document.getElementById('createUsername').value.trim();
+                const roomId = document.getElementById('roomId').value.trim();
+                const roomName = document.getElementById('roomName').value.trim();
+                
+                if (!username) {
+                    createRoomError.textContent = 'Please enter a username';
+                    createRoomError.style.display = 'block';
+                    return;
+                }
+                
+                if (!roomId) {
+                    createRoomError.textContent = 'Please enter a room ID';
+                    createRoomError.style.display = 'block';
+                    return;
+                }
+                
+                if (!roomName) {
+                    createRoomError.textContent = 'Please enter a room name';
+                    createRoomError.style.display = 'block';
+                    return;
+                }
+                
+                // Validate room ID format (letters, numbers, hyphens only)
+                if (!/^[a-z0-9-]+$/.test(roomId)) {
+                    createRoomError.textContent = 'Room ID can only contain lowercase letters, numbers, and hyphens';
+                    createRoomError.style.display = 'block';
+                    return;
+                }
+                
+                // Connect to server
+                socket = io('http://localhost:3000');
+                
+                socket.on('connect', () => {
+                    setupSocketListeners();
+                    
+                    // Create room
+                    socket.emit('createRoom', { roomId, roomName });
+                    
+                    // Listen for room creation success
+                    socket.once('roomCreateSuccess', (room) => {
+                        // Auto-join the room
+                        joinRoom(username, room.id);
+                    });
+                });
+            });
+            
+            // Join room function
+            function joinRoom(user, room) {
+                // Clear message history before joining new room
+                messageHistory = [];
+                
+                // If not already connected
+                if (!socket || !socket.connected) {
+                    socket = io('http://localhost:3000');
+                    
+                    socket.on('connect', () => {
+                        console.log('Connected to server');
+                        
+                        // Setup all listeners
+                        setupSocketListeners();
+                        
+                        // Join room - use the correct parameter names
+                        socket.emit('join', { username: user, roomId: room });
+                        
+                        // Show chat container
+                        joinContainer.style.display = 'none';
+                        chatContainer.style.display = 'flex';
+                        roomNameDisplay.textContent = room;
+                        
+                        // Focus on message input
+                        messageInput.focus();
+                    });
+                } else {
+                    // Already connected, just join the room
+                    
+                    // Setup listeners if not already set up
+                    // This ensures listeners are properly established after reconnection
+                    setupSocketListeners();
+                    
+                    // Join room - use the correct parameter names
+                    socket.emit('join', { username: user, roomId: room });
+                    
+                    // Show chat container
+                    joinContainer.style.display = 'none';
+                    chatContainer.style.display = 'flex';
+                    roomNameDisplay.textContent = room;
+                    
+                    // Focus on message input
+                    messageInput.focus();
+                }
+            }
+            
+            // Handle sending messages
+            sendBtn.addEventListener('click', sendMessage);
+            messageInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    sendMessage();
+                }
+            });
+            
+            // Handle typing
+            messageInput.addEventListener('input', () => {
+                if (socket) {
+                    socket.emit('typing', { isTyping: true });
+                    
+                    // Clear previous timeout
+                    if (typingTimeout) {
+                        clearTimeout(typingTimeout);
+                    }
+                    
+                    // Set new timeout to stop typing indicator after 2 seconds
+                    typingTimeout = setTimeout(() => {
+                        socket.emit('typing', { isTyping: false });
+                    }, 2000);
+                }
+            });
+            
+            function sendMessage() {
+                const message = messageInput.value.trim();
+                
+                if (message && socket) {
+                    socket.emit('sendMessage', { message });
+                    messageInput.value = '';
+                    messageInput.focus();
+                }
+            }
+            
+            // Handle leaving room
+            leaveBtn.addEventListener('click', leaveRoom);
+            
+            // Add message to the UI
+            function addMessageToUI(message) {
+                const messageElement = document.createElement('div');
+                
+                // Set message type
+                if (message.isSystem || message.user === 'system') {
+                    messageElement.className = 'message system';
+                } else if (message.user === username) {
+                    messageElement.className = 'message sent';
+                } else {
+                    messageElement.className = 'message received';
+                }
+                
+                // Add user name if not system message
+                if (!message.isSystem && message.user !== 'system') {
+                    const userSpan = document.createElement('strong');
+                    userSpan.textContent = message.user + ': ';
+                    messageElement.appendChild(userSpan);
+                }
+                
+                // Add message text
+                const textSpan = document.createElement('span');
+                textSpan.textContent = message.text;
+                messageElement.appendChild(textSpan);
+                
+                // Add timestamp
+                if (message.timestamp) {
+                    const timeSpan = document.createElement('div');
+                    timeSpan.className = 'message-timestamp';
+                    timeSpan.textContent = formatMessageTime(message.timestamp);
+                    messageElement.appendChild(timeSpan);
+                }
+                
+                // Make sure the typing indicator exists, create it if not
+                if (!document.getElementById('typingIndicator')) {
+                    typingIndicator = document.createElement('div');
+                    typingIndicator.id = 'typingIndicator';
+                    typingIndicator.className = 'typing-indicator';
+                    typingIndicator.style.display = 'none';
+                    messagesContainer.appendChild(typingIndicator);
+                }
+                
+                // Add to container and scroll to bottom
+                messagesContainer.insertBefore(messageElement, typingIndicator);
+                messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            }
+            
+            // Update users list
+            function updateUsersList(users) {
+                usersList.innerHTML = '';
+                
+                users.forEach(user => {
+                    const li = document.createElement('li');
+                    li.className = 'user-item';
+                    
+                    // Add status indicator
+                    const statusDot = document.createElement('span');
+                    statusDot.className = `user-status ${user.isOnline ? 'status-online' : 'status-offline'}`;
+                    if (user.isTyping) {
+                        statusDot.className = 'user-status status-typing';
+                    }
+                    
+                    li.appendChild(statusDot);
+                    
+                    // Add username
+                    const userText = document.createTextNode(user.username);
+                    li.appendChild(userText);
+                    
+                    // Add typing indicator if needed
+                    if (user.isTyping) {
+                        const typingText = document.createElement('span');
+                        typingText.textContent = ' (typing...)';
+                        typingText.style.fontStyle = 'italic';
+                        typingText.style.color = '#666';
+                        li.appendChild(typingText);
+                    }
+                    
+                    usersList.appendChild(li);
+                });
+            }
+            
+            // Update user status in the UI
+            function updateUserStatus(data) {
+                const users = usersList.querySelectorAll('li');
+                users.forEach(userItem => {
+                    if (userItem.textContent.includes(data.username)) {
+                        const statusDot = userItem.querySelector('.user-status');
+                        if (data.isOnline) {
+                            statusDot.className = 'user-status status-online';
+                        } else {
+                            statusDot.className = 'user-status status-offline';
+                        }
+                    }
+                });
+            }
+            
+            function leaveRoom() {
+                if (!currentRoom) return;
+                
+                // Emit leaveRoom event to the server
+                socket.emit('leaveRoom', currentRoom);
+                
+                // Reset UI components
+                joinContainer.style.display = 'flex';
+                chatContainer.style.display = 'none';
+                
+                // Clear messages but properly add back typing indicator
+                messagesContainer.innerHTML = '';
+                typingIndicator = document.createElement('div');
+                typingIndicator.id = 'typingIndicator';
+                typingIndicator.className = 'typing-indicator';
+                typingIndicator.style.display = 'none';
+                messagesContainer.appendChild(typingIndicator);
+                
+                usersList.innerHTML = '';
+                messageInput.value = '';
+                roomNameDisplay.textContent = '';
+                
+                // Clear current room
+                currentRoom = null;
+                messageHistory = [];
+                
+                // Refresh available rooms
+                fetchAvailableRooms();
+            }
+        });
+    </script>
+</body>
+</html> 
