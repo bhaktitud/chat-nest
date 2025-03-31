@@ -454,7 +454,8 @@ export class ChatService {
     try {
       const messages = await this.messageModel
         .find({ room: roomId })
-        .sort({ timestamp: 1 })
+        .sort({ timestamp: -1 })
+        .limit(this.MAX_MESSAGES_PER_ROOM)
         .exec();
 
       return messages.map((msg) => ({
@@ -465,8 +466,12 @@ export class ChatService {
         timestamp: msg.timestamp,
         isSystem: msg.isSystem,
       }));
-    } catch (error) {
-      this.logger.error(`Error getting messages for room ${roomId}:`, error);
+    } catch (error: unknown) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `Error getting messages for room ${roomId}: ${errorMessage}`,
+      );
       return [];
     }
   }
@@ -494,10 +499,11 @@ export class ChatService {
           await this.userModel
             .findOneAndUpdate({ userId }, { room: 'lobby' }, { new: true })
             .exec();
-        } catch (error) {
+        } catch (error: unknown) {
+          const errorMessage =
+            error instanceof Error ? error.message : String(error);
           this.logger.error(
-            `Error updating user ${userId} room status:`,
-            error,
+            `Error updating user ${userId} room status: ${errorMessage}`,
           );
         }
       }
@@ -547,8 +553,10 @@ export class ChatService {
         timestamp: msg.timestamp,
         isSystem: msg.isSystem,
       }));
-    } catch (error) {
-      this.logger.error('Error fetching message history:', error);
+    } catch (error: unknown) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.logger.error(`Error fetching message history: ${errorMessage}`);
       return [];
     }
   }

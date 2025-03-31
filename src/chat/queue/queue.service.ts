@@ -149,8 +149,10 @@ export class QueueService {
           processingTime: processingTime || undefined,
         };
       });
-    } catch (error) {
-      this.logger.error('Error fetching recent messages:', error);
+    } catch (error: unknown) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.logger.error(`Error fetching recent messages: ${errorMessage}`);
       return [];
     }
   }
@@ -221,8 +223,10 @@ export class QueueService {
       }
 
       return filteredMessages;
-    } catch (error) {
-      this.logger.error('Error fetching filtered messages:', error);
+    } catch (error: unknown) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.logger.error(`Error fetching filtered messages: ${errorMessage}`);
       return [];
     }
   }

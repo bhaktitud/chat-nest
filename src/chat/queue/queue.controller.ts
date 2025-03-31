@@ -2,7 +2,7 @@ import { Controller, Get, Query, Post } from '@nestjs/common';
 import { QueueService } from './queue.service';
 import { QueueFilterDto, QueueStatsDto } from '../dto/chat.dto';
 
-@Controller('api/queue')
+@Controller('queue')
 export class QueueController {
   constructor(private readonly queueService: QueueService) {}
 

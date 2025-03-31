@@ -93,9 +93,10 @@ export class ChatGateway
             users: usersInRoom,
           } as RoomData);
         }
-      } catch (err) {
-        const error = err as Error;
-        this.logger.error(`Error in handleDisconnect: ${error.message}`);
+      } catch (err: unknown) {
+        const errorMessage =
+          err instanceof Error ? err.message : 'Unknown error';
+        this.logger.error(`Error in handleDisconnect: ${errorMessage}`);
       }
     }
   }
@@ -173,20 +174,6 @@ export class ChatGateway
       // Join the room
       client.join(roomId);
 
-      // Notify the room that the user has joined
-      // const joinMessage = await this.chatService.addSystemMessage(
-      //   roomId,
-      //   `${username} has joined the chat.`,
-      // );
-
-      // this.server.to(roomId).emit('message', {
-      //   id: joinMessage.id,
-      //   user: joinMessage.user,
-      //   text: joinMessage.text,
-      //   timestamp: joinMessage.timestamp,
-      //   isSystem: joinMessage.isSystem,
-      // });
-
       // Send recent messages history to the user
       const messageHistory = await this.chatService.getMessageHistory(roomId);
       client.emit('messageHistory', messageHistory);
@@ -197,8 +184,10 @@ export class ChatGateway
         room: roomId,
         users: roomUsers,
       } as RoomData);
-    } catch (error) {
-      this.logger.error('Error in handleJoin:', error);
+    } catch (error: unknown) {
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`Error in handleJoin: ${errorMessage}`);
       client.emit('error', {
         message: 'An error occurred while joining the room.',
       });
@@ -263,8 +252,11 @@ export class ChatGateway
         timestamp: newMessage.timestamp,
         isSystem: newMessage.isSystem,
       });
-    } catch (error) {
-      this.logger.error('Error handling message:', error);
+    } catch (error: unknown) {
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`Error handling message: ${errorMessage}`);
+      client.emit('error', { message: 'Failed to send message' });
     }
   }
 
@@ -290,8 +282,11 @@ export class ChatGateway
         username: user.username,
         isTyping: payload.isTyping,
       } as UserTyping);
-    } catch (error) {
-      this.logger.error('Error handling typing event:', error);
+    } catch (error: unknown) {
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`Error handling typing event: ${errorMessage}`);
+      client.emit('error', { message: 'Failed to update typing status' });
     }
   }
 
@@ -345,9 +340,10 @@ export class ChatGateway
 
       // Confirm to creator
       client.emit('roomCreateSuccess', newRoom);
-    } catch (error) {
+    } catch (error: unknown) {
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error occurred';
+      this.logger.error(`Error creating room: ${errorMessage}`);
       client.emit('error', {
         message: errorMessage,
       });
@@ -359,8 +355,10 @@ export class ChatGateway
     try {
       const rooms = await this.chatService.getAllRooms();
       client.emit('availableRooms', rooms);
-    } catch (error) {
-      this.logger.error('Error fetching rooms:', error);
+    } catch (error: unknown) {
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`Error fetching rooms: ${errorMessage}`);
       client.emit('error', { message: 'Error fetching rooms' });
     }
   }
@@ -375,8 +373,10 @@ export class ChatGateway
         payload.room,
       );
       client.emit('messageHistory', messageHistory);
-    } catch (error) {
-      this.logger.error('Error fetching message history:', error);
+    } catch (error: unknown) {
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`Error fetching message history: ${errorMessage}`);
       client.emit('error', { message: 'Error fetching message history' });
     }
   }
@@ -397,19 +397,6 @@ export class ChatGateway
       // Leave the Socket.io room (not a Promise, so no await)
       client.leave(roomId);
 
-      // Send a message that the user has left the chat
-      // const systemMessage: SystemMessage = {
-      //   user: {
-      //     id: 'system',
-      //     username: 'System',
-      //   },
-      //   text: `${user.username} has left the chat.`,
-      //   timestamp: new Date().toISOString(),
-      //   type: 'system',
-      // };
-
-      // this.server.to(roomId).emit('message', systemMessage);
-
       // Get updated users in the room and broadcast
       const usersInRoom = this.chatService.getUsersInRoom(roomId);
       const updatedUsers = usersInRoom.filter((u) => u.id !== user.id);
@@ -422,8 +409,11 @@ export class ChatGateway
       // Update the user's status without removing them completely
       // This keeps their connection alive but removes them from the room
       await this.chatService.removeUserFromRoom(user.id, roomId);
-    } catch (error) {
-      this.logger.error('Error in handleLeaveRoom:', error);
+    } catch (error: unknown) {
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`Error in handleLeaveRoom: ${errorMessage}`);
+      client.emit('error', { message: 'Failed to leave room' });
     }
   }
 
