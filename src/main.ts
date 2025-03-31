@@ -1,92 +1,94 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
-import { NestExpressApplication } from '@nestjs/platform-express';
-import { Logger } from '@nestjs/common';
-import * as path from 'path';
-import { ConfigService } from './config/config.service';
+import { ValidationPipe } from '@nestjs/common';
+import { GlobalExceptionFilter } from './monitoring/http-exception.filter';
+import { ErrorLoggingService } from './monitoring/error-logging.service';
+import { ThrottlerGuard } from '@nestjs/throttler';
+import helmet from 'helmet';
+import * as compression from 'compression';
 
 async function bootstrap() {
-  // Create custom logger for bootstrap process
-  const logger = new Logger('Bootstrap');
+  const app = await NestFactory.create(AppModule);
 
-  try {
-    const app = await NestFactory.create<NestExpressApplication>(AppModule, {
-      logger: ['error', 'warn', 'log', 'debug'],
-    });
+  // Get the error logging service
+  const errorLoggingService = app.get(ErrorLoggingService);
 
-    // Get config service
-    const configService = app.get(ConfigService);
+  // Global filters and pipes
+  app.useGlobalFilters(new GlobalExceptionFilter(errorLoggingService));
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+    }),
+  );
 
-    // Set up static files
-    app.useStaticAssets(path.join(__dirname, '..', 'public'));
+  // Security middleware
+  app.use(helmet());
+  app.use(compression());
+  app.enableCors({
+    origin: process.env.CORS_ORIGIN || '*',
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true,
+  });
 
-    // Get port from environment or use default
-    const port = parseInt(configService.get('PORT', '3000'), 10);
+  // Use the built-in ThrottlerGuard
+  const throttlerGuard = app.get(ThrottlerGuard);
+  app.useGlobalGuards(throttlerGuard);
 
-    // Set up CORS
-    app.enableCors({
-      origin: '*',
-      methods: ['GET', 'POST'],
-      credentials: true,
-    });
+  // Start the server
+  const port = process.env.PORT || 3000;
+  await app.listen(port);
+  console.log(`Application is running on port ${port}`);
 
-    // Set global prefix
-    app.setGlobalPrefix('api', { exclude: [''] });
-
-    // Handle MongoDB connection issues
-    process.on('unhandledRejection', (reason: any) => {
-      if (reason && reason.message && reason.message.includes('_mongodb')) {
-        logger.warn('MongoDB connection failed. Running in memory-only mode.');
-        logger.warn(
-          'Data will not be persisted when the application restarts.',
-        );
-      } else {
-        logger.error(`Unhandled Rejection: ${String(reason)}`);
-      }
-    });
-
-    // Start the application
-    await app.listen(port);
-
-    logger.log(`Application started successfully on port ${port}`);
-    logger.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
-    logger.log(`Server URL: http://localhost:${port}`);
-  } catch (err: unknown) {
-    const error = err as Error;
-    logger.error(`Failed to start application: ${error.message}`);
-    if (error.stack) {
-      logger.error(`Stack trace: ${error.stack}`);
-    }
-    process.exit(1);
-  }
+  // Log application startup
+  errorLoggingService.logInfo(
+    `Application started on port ${port}`,
+    'Bootstrap',
+    {
+      environment: process.env.NODE_ENV || 'development',
+      port,
+    },
+  );
 }
 
-// Add graceful shutdown handling
-process.on('SIGINT', () => {
-  const logger = new Logger('Shutdown');
-  logger.log('Received SIGINT signal. Shutting down gracefully...');
-  process.exit(0);
-});
-
-process.on('SIGTERM', () => {
-  const logger = new Logger('Shutdown');
-  logger.log('Received SIGTERM signal. Shutting down gracefully...');
-  process.exit(0);
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-  const logger = new Logger('UnhandledRejection');
-  logger.error(`Unhandled Rejection at promise: ${String(promise)}`);
-  logger.error(`Reason: ${String(reason)}`);
-});
-
-process.on('uncaughtException', (error: Error) => {
-  const logger = new Logger('UncaughtException');
-  logger.error(`Uncaught Exception: ${error.message}`);
-  if (error.stack) {
-    logger.error(`Stack trace: ${error.stack}`);
+// Handle uncaught exceptions at the process level
+process.on('uncaughtException', async (error) => {
+  console.error('Uncaught Exception:', error);
+  // Get error logging service if available
+  try {
+    const app = await NestFactory.createApplicationContext(AppModule);
+    await app.init();
+    const errorLoggingService = app.get(ErrorLoggingService);
+    errorLoggingService.logError(error, 'UncaughtException', {
+      processId: process.pid,
+    });
+    await app.close();
+    process.exit(1);
+  } catch {
+    // If we can't initialize the app context, just exit
+    process.exit(1);
   }
-  process.exit(1);
+});
+
+process.on('unhandledRejection', async (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  // Similar handling as uncaught exceptions
+  try {
+    const app = await NestFactory.createApplicationContext(AppModule);
+    await app.init();
+    const errorLoggingService = app.get(ErrorLoggingService);
+    errorLoggingService.logError(
+      reason instanceof Error ? reason : new Error(String(reason)),
+      'UnhandledRejection',
+      { processId: process.pid },
+    );
+    await app.close();
+  } catch {
+    // If we can't initialize the app context, just log to console
+    console.error('Failed to log unhandled rejection properly');
+  }
 });
 
 bootstrap();

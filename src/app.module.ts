@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { ConfigModule } from './config/config.module';
@@ -6,12 +6,17 @@ import { ConfigService } from './config/config.service';
 import { DatabaseModule } from './database/database.module';
 import { ChatModule } from './chat/chat.module';
 import { MongooseModule } from '@nestjs/mongoose';
-import { ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { Connection } from 'mongoose';
+import { MonitoringModule } from './monitoring/monitoring.module';
+import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import { GlobalExceptionFilter } from './monitoring/http-exception.filter';
+import { RequestLoggerMiddleware } from './monitoring/request-logger.middleware';
 
 @Module({
   imports: [
     ConfigModule,
+    MonitoringModule,
     ThrottlerModule.forRoot({
       throttlers: [
         {
@@ -59,6 +64,20 @@ import { Connection } from 'mongoose';
     ChatModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    {
+      provide: APP_FILTER,
+      useClass: GlobalExceptionFilter,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
+  ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(RequestLoggerMiddleware).forRoutes('*'); // Apply to all routes
+  }
+}
