@@ -20,6 +20,10 @@ A real-time chat application built with NestJS and Socket.IO.
   - Automatic data cleanup
   - Schema-based data models
 - Clean, responsive UI
+- Comprehensive test suite
+  - Unit tests
+  - Integration tests
+  - End-to-end (E2E) tests
 
 ## Technologies Used
 
@@ -28,6 +32,7 @@ A real-time chat application built with NestJS and Socket.IO.
 - MongoDB - NoSQL database for storing messages, rooms, and user data
 - Mongoose - MongoDB object modeling for Node.js
 - HTML/CSS/JavaScript - Frontend client
+- Jest - Testing framework
 
 ## Installation
 
@@ -92,6 +97,60 @@ npm run start:prod
 ```
 
 The application will be running at http://localhost:3000.
+
+## Testing
+
+The application includes a comprehensive test suite covering unit, integration, and end-to-end tests.
+
+### Running Tests
+
+```bash
+# Run unit tests
+npm test
+
+# Run unit tests with coverage
+npm run test:cov
+
+# Run end-to-end tests
+npm run test:e2e
+
+# Run all tests (unit, integration, and E2E)
+npm run test:all
+
+# Run CI tests (lint, coverage, and E2E)
+npm run test:ci
+```
+
+### Test Structure
+
+- **Unit Tests**: Test individual components in isolation
+  - Located in each component's directory with `.spec.ts` extension
+  - Test business logic, services, and utility functions
+  
+- **Integration Tests**: Test interactions between components
+  - Same `.spec.ts` files but with more complex mocking
+  - Test controllers, gateways, and services together
+  
+- **E2E Tests**: Test the application as a whole
+  - Located in the `test` directory with `.e2e-spec.ts` extension
+  - Test HTTP endpoints and WebSocket communication
+
+### Key Test Files
+
+- `chat.service.spec.ts` - Unit tests for the Chat Service
+- `queue.service.spec.ts` - Unit tests for the Queue Service
+- `chat.gateway.spec.ts` - Unit/integration tests for the WebSocket gateway
+- `app.e2e-spec.ts` - End-to-end tests for the entire application
+
+### Test Coverage
+
+Run `npm run test:cov` to generate a coverage report. The report will show:
+- Line coverage
+- Statement coverage
+- Function coverage
+- Branch coverage
+
+The coverage report is stored in the `coverage` directory.
 
 ## How to Use
 
