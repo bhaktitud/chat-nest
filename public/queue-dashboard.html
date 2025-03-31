@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat Engine Queue Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary-color: #2196F3;
+            --success-color: #4CAF50;
+            --warning-color: #FFC107;
+            --error-color: #F44336;
+            --dark-bg: #263238;
+            --light-bg: #ECEFF1;
+            --text-color: #37474F;
+            --light-text: #ECEFF1;
+        }
+        
+        * {
+            box-sizing: border-box;
+            font-family: 'Roboto', sans-serif;
+        }
+        
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--light-bg);
+            color: var(--text-color);
+        }
+        
+        .dashboard-container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        header {
+            background-color: var(--dark-bg);
+            color: var(--light-text);
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        
+        h1 {
+            margin: 0;
+            font-size: 1.8rem;
+        }
+        
+        .refresh-btn {
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .refresh-btn:hover {
+            opacity: 0.9;
+        }
+        
+        .refresh-btn svg {
+            width: 16px;
+            height: 16px;
+        }
+        
+        .stats-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .card {
+            background-color: white;
+            border-radius: 5px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            padding: 20px;
+        }
+        
+        .stat-card {
+            text-align: center;
+            transition: transform 0.2s;
+        }
+        
+        .stat-card:hover {
+            transform: translateY(-5px);
+        }
+        
+        .stat-value {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin: 10px 0;
+        }
+        
+        .stat-label {
+            font-size: 0.9rem;
+            color: #78909C;
+        }
+        
+        .stat-card.total { color: var(--primary-color); }
+        .stat-card.pending { color: var(--warning-color); }
+        .stat-card.processed { color: var(--success-color); }
+        .stat-card.failed { color: var(--error-color); }
+        
+        .data-container {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 20px;
+        }
+        
+        .messages-table {
+            overflow-x: auto;
+            border-radius: 5px;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        table th, table td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid #E0E0E0;
+        }
+        
+        table th {
+            background-color: #F5F5F5;
+            font-weight: 500;
+        }
+        
+        table tbody tr:hover {
+            background-color: #F5F7FA;
+        }
+        
+        .filter-section {
+            margin-bottom: 15px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        
+        .filter-section select, .filter-section input {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        
+        .filter-section button {
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        
+        .chip {
+            display: inline-block;
+            padding: 0 12px;
+            height: 24px;
+            font-size: 12px;
+            line-height: 24px;
+            border-radius: 25px;
+            color: white;
+        }
+        
+        .chip.pending {
+            background-color: var(--warning-color);
+        }
+        
+        .chip.processed {
+            background-color: var(--success-color);
+        }
+        
+        .chip.failed {
+            background-color: var(--error-color);
+        }
+        
+        .active-lists {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+        
+        .active-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px;
+            border-bottom: 1px solid #E0E0E0;
+        }
+        
+        .active-item span {
+            font-size: 0.9rem;
+        }
+        
+        .active-item .count {
+            background-color: var(--primary-color);
+            color: white;
+            padding: 2px 6px;
+            border-radius: 10px;
+            font-size: 0.7rem;
+        }
+        
+        .pagination {
+            display: flex;
+            justify-content: center;
+            gap: 5px;
+            margin: 20px 0;
+        }
+        
+        .pagination button {
+            width: 30px;
+            height: 30px;
+            border: 1px solid #ddd;
+            background-color: white;
+            cursor: pointer;
+            border-radius: 3px;
+        }
+        
+        .pagination button.active {
+            background-color: var(--primary-color);
+            color: white;
+            border-color: var(--primary-color);
+        }
+        
+        @media (max-width: 900px) {
+            .data-container {
+                grid-template-columns: 1fr;
+            }
+            
+            .active-lists {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid var(--primary-color);
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 30px;
+            color: #78909C;
+        }
+        
+        .reset-stats {
+            background-color: var(--error-color);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-left: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard-container">
+        <header>
+            <h1>Chat Engine Queue Dashboard</h1>
+            <div>
+                <button id="refreshBtn" class="refresh-btn">
+                    <svg viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 9h7V2l-2.35 4.35z"/>
+                    </svg>
+                    Refresh
+                </button>
+                <button id="resetStatsBtn" class="reset-stats">Reset Stats</button>
+            </div>
+        </header>
+        
+        <div class="stats-cards">
+            <div class="card stat-card total">
+                <div class="stat-label">Total Messages</div>
+                <div id="totalMessages" class="stat-value">0</div>
+            </div>
+            <div class="card stat-card pending">
+                <div class="stat-label">Pending Messages</div>
+                <div id="pendingMessages" class="stat-value">0</div>
+            </div>
+            <div class="card stat-card processed">
+                <div class="stat-label">Processed Messages</div>
+                <div id="processedMessages" class="stat-value">0</div>
+            </div>
+            <div class="card stat-card failed">
+                <div class="stat-label">Failed Messages</div>
+                <div id="failedMessages" class="stat-value">0</div>
+            </div>
+            <div class="card stat-card">
+                <div class="stat-label">Avg. Processing Time</div>
+                <div id="avgProcessingTime" class="stat-value">0ms</div>
+            </div>
+            <div class="card stat-card">
+                <div class="stat-label">Messages Per Second</div>
+                <div id="messagesPerSecond" class="stat-value">0</div>
+            </div>
+            <div class="card stat-card">
+                <div class="stat-label">Active Rooms</div>
+                <div id="activeRooms" class="stat-value">0</div>
+            </div>
+            <div class="card stat-card">
+                <div class="stat-label">Active Users</div>
+                <div id="activeUsers" class="stat-value">0</div>
+            </div>
+        </div>
+        
+        <div class="data-container">
+            <div class="card">
+                <h2>Recent Messages</h2>
+                <div class="filter-section">
+                    <select id="statusFilter">
+                        <option value="all">All Status</option>
+                        <option value="pending">Pending</option>
+                        <option value="processed">Processed</option>
+                        <option value="failed">Failed</option>
+                    </select>
+                    <select id="roomFilter">
+                        <option value="">All Rooms</option>
+                    </select>
+                    <select id="userFilter">
+                        <option value="">All Users</option>
+                    </select>
+                    <button id="applyFilters">Apply Filters</button>
+                </div>
+                <div class="messages-table">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Message</th>
+                                <th>Room</th>
+                                <th>User</th>
+                                <th>Time</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="messagesTableBody">
+                            <!-- Messages will be loaded here -->
+                        </tbody>
+                    </table>
+                    <div id="messagesLoader" class="loader" style="display: none;"></div>
+                    <div id="emptyMessages" class="empty-state" style="display: none;">
+                        No messages found.
+                    </div>
+                </div>
+                <div class="pagination" id="messagesPagination">
+                    <!-- Pagination will be added here -->
+                </div>
+            </div>
+            
+            <div>
+                <div class="card" style="margin-bottom: 20px;">
+                    <h2>Active Rooms</h2>
+                    <div id="roomsList">
+                        <!-- Rooms will be loaded here -->
+                    </div>
+                    <div id="roomsLoader" class="loader" style="display: none;"></div>
+                    <div id="emptyRooms" class="empty-state" style="display: none;">
+                        No active rooms.
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <h2>Active Users</h2>
+                    <div id="usersList">
+                        <!-- Users will be loaded here -->
+                    </div>
+                    <div id="usersLoader" class="loader" style="display: none;"></div>
+                    <div id="emptyUsers" class="empty-state" style="display: none;">
+                        No active users.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global state
+        const state = {
+            messages: [],
+            rooms: [],
+            users: [],
+            currentPage: 1,
+            pageSize: 10,
+            filters: {
+                status: 'all',
+                room: '',
+                user: ''
+            },
+            stats: {
+                totalMessages: 0,
+                pendingMessages: 0,
+                processedMessages: 0,
+                failedMessages: 0,
+                averageProcessingTime: 0,
+                messagesPerSecond: 0,
+                activeRooms: 0,
+                activeUsers: 0
+            }
+        };
+        
+        // DOM Elements
+        const elements = {
+            totalMessages: document.getElementById('totalMessages'),
+            pendingMessages: document.getElementById('pendingMessages'),
+            processedMessages: document.getElementById('processedMessages'),
+            failedMessages: document.getElementById('failedMessages'),
+            avgProcessingTime: document.getElementById('avgProcessingTime'),
+            messagesPerSecond: document.getElementById('messagesPerSecond'),
+            activeRooms: document.getElementById('activeRooms'),
+            activeUsers: document.getElementById('activeUsers'),
+            messagesTableBody: document.getElementById('messagesTableBody'),
+            roomsList: document.getElementById('roomsList'),
+            usersList: document.getElementById('usersList'),
+            statusFilter: document.getElementById('statusFilter'),
+            roomFilter: document.getElementById('roomFilter'),
+            userFilter: document.getElementById('userFilter'),
+            applyFilters: document.getElementById('applyFilters'),
+            refreshBtn: document.getElementById('refreshBtn'),
+            resetStatsBtn: document.getElementById('resetStatsBtn'),
+            messagesPagination: document.getElementById('messagesPagination'),
+            messagesLoader: document.getElementById('messagesLoader'),
+            roomsLoader: document.getElementById('roomsLoader'),
+            usersLoader: document.getElementById('usersLoader'),
+            emptyMessages: document.getElementById('emptyMessages'),
+            emptyRooms: document.getElementById('emptyRooms'),
+            emptyUsers: document.getElementById('emptyUsers')
+        };
+        
+        // API Functions
+        const api = {
+            async getStats() {
+                try {
+                    const response = await fetch('/api/queue/stats');
+                    return await response.json();
+                } catch (error) {
+                    console.error('Error fetching stats:', error);
+                    return null;
+                }
+            },
+            
+            async getMessages(limit = 100) {
+                try {
+                    const response = await fetch(`/api/queue/messages?limit=${limit}`);
+                    return await response.json();
+                } catch (error) {
+                    console.error('Error fetching messages:', error);
+                    return [];
+                }
+            },
+            
+            async getFilteredMessages(filters) {
+                try {
+                    const queryParams = new URLSearchParams();
+                    if (filters.status && filters.status !== 'all') queryParams.append('status', filters.status);
+                    if (filters.room) queryParams.append('room', filters.room);
+                    if (filters.user) queryParams.append('user', filters.user);
+                    if (filters.limit) queryParams.append('limit', filters.limit);
+                    
+                    const response = await fetch(`/api/queue/messages/filtered?${queryParams.toString()}`);
+                    return await response.json();
+                } catch (error) {
+                    console.error('Error fetching filtered messages:', error);
+                    return [];
+                }
+            },
+            
+            async getRooms() {
+                try {
+                    const response = await fetch('/api/queue/rooms');
+                    return await response.json();
+                } catch (error) {
+                    console.error('Error fetching rooms:', error);
+                    return [];
+                }
+            },
+            
+            async getUsers() {
+                try {
+                    const response = await fetch('/api/queue/users');
+                    return await response.json();
+                } catch (error) {
+                    console.error('Error fetching users:', error);
+                    return [];
+                }
+            },
+            
+            async resetStats() {
+                try {
+                    const response = await fetch('/api/queue/reset', {
+                        method: 'POST'
+                    });
+                    return await response.json();
+                } catch (error) {
+                    console.error('Error resetting stats:', error);
+                    return { success: false };
+                }
+            }
+        };
+        
+        // Rendering Functions
+        const render = {
+            stats() {
+                elements.totalMessages.textContent = state.stats.totalMessages;
+                elements.pendingMessages.textContent = state.stats.pendingMessages;
+                elements.processedMessages.textContent = state.stats.processedMessages;
+                elements.failedMessages.textContent = state.stats.failedMessages;
+                elements.avgProcessingTime.textContent = `${Math.round(state.stats.averageProcessingTime)}ms`;
+                elements.messagesPerSecond.textContent = state.stats.messagesPerSecond.toFixed(2);
+                elements.activeRooms.textContent = state.stats.activeRooms;
+                elements.activeUsers.textContent = state.stats.activeUsers;
+            },
+            
+            messages() {
+                const start = (state.currentPage - 1) * state.pageSize;
+                const end = start + state.pageSize;
+                const pagedMessages = state.messages.slice(start, end);
+                
+                if (pagedMessages.length === 0) {
+                    elements.messagesTableBody.innerHTML = '';
+                    elements.emptyMessages.style.display = 'block';
+                    return;
+                }
+                
+                elements.emptyMessages.style.display = 'none';
+                elements.messagesTableBody.innerHTML = pagedMessages.map(message => `
+                    <tr>
+                        <td>${message.text}</td>
+                        <td>${message.room}</td>
+                        <td>${message.user}</td>
+                        <td>${formatDate(message.timestamp)}</td>
+                        <td><span class="chip ${message.status}">${message.status}</span></td>
+                    </tr>
+                `).join('');
+                
+                // Update pagination
+                this.pagination();
+            },
+            
+            pagination() {
+                const totalPages = Math.ceil(state.messages.length / state.pageSize);
+                
+                if (totalPages <= 1) {
+                    elements.messagesPagination.innerHTML = '';
+                    return;
+                }
+                
+                let paginationHTML = '';
+                
+                // Previous button
+                paginationHTML += `
+                    <button ${state.currentPage === 1 ? 'disabled' : ''} 
+                            onclick="changePage(${state.currentPage - 1})">
+                        &lt;
+                    </button>
+                `;
+                
+                // Page buttons
+                for (let i = 1; i <= totalPages; i++) {
+                    paginationHTML += `
+                        <button class="${state.currentPage === i ? 'active' : ''}" 
+                                onclick="changePage(${i})">
+                            ${i}
+                        </button>
+                    `;
+                }
+                
+                // Next button
+                paginationHTML += `
+                    <button ${state.currentPage === totalPages ? 'disabled' : ''} 
+                            onclick="changePage(${state.currentPage + 1})">
+                        &gt;
+                    </button>
+                `;
+                
+                elements.messagesPagination.innerHTML = paginationHTML;
+            },
+            
+            rooms() {
+                if (state.rooms.length === 0) {
+                    elements.roomsList.innerHTML = '';
+                    elements.emptyRooms.style.display = 'block';
+                    return;
+                }
+                
+                elements.emptyRooms.style.display = 'none';
+                elements.roomsList.innerHTML = state.rooms.map(room => `
+                    <div class="active-item">
+                        <span>${room}</span>
+                        <span class="count">${countMessagesInRoom(room)}</span>
+                    </div>
+                `).join('');
+                
+                // Update room filter options
+                updateRoomFilterOptions();
+            },
+            
+            users() {
+                if (state.users.length === 0) {
+                    elements.usersList.innerHTML = '';
+                    elements.emptyUsers.style.display = 'block';
+                    return;
+                }
+                
+                elements.emptyUsers.style.display = 'none';
+                elements.usersList.innerHTML = state.users.map(user => `
+                    <div class="active-item">
+                        <span>${user}</span>
+                        <span class="count">${countMessagesFromUser(user)}</span>
+                    </div>
+                `).join('');
+                
+                // Update user filter options
+                updateUserFilterOptions();
+            }
+        };
+        
+        // Helper Functions
+        function formatDate(dateString) {
+            const date = new Date(dateString);
+            return date.toLocaleTimeString() + ' ' + date.toLocaleDateString();
+        }
+        
+        function countMessagesInRoom(room) {
+            return state.messages.filter(message => message.room === room).length;
+        }
+        
+        function countMessagesFromUser(user) {
+            return state.messages.filter(message => message.user === user).length;
+        }
+        
+        function updateRoomFilterOptions() {
+            const roomSet = new Set(state.rooms);
+            let options = '<option value="">All Rooms</option>';
+            
+            roomSet.forEach(room => {
+                options += `<option value="${room}" ${state.filters.room === room ? 'selected' : ''}>${room}</option>`;
+            });
+            
+            elements.roomFilter.innerHTML = options;
+        }
+        
+        function updateUserFilterOptions() {
+            const userSet = new Set(state.users);
+            let options = '<option value="">All Users</option>';
+            
+            userSet.forEach(user => {
+                options += `<option value="${user}" ${state.filters.user === user ? 'selected' : ''}>${user}</option>`;
+            });
+            
+            elements.userFilter.innerHTML = options;
+        }
+        
+        // Event handlers
+        function changePage(page) {
+            state.currentPage = page;
+            render.messages();
+        }
+        
+        async function loadData() {
+            showLoaders();
+            
+            // Load stats
+            const stats = await api.getStats();
+            if (stats) {
+                state.stats = stats;
+                render.stats();
+            }
+            
+            // Load messages (filtered if filters are applied)
+            let messages;
+            if (state.filters.status !== 'all' || state.filters.room || state.filters.user) {
+                messages = await api.getFilteredMessages({
+                    ...state.filters,
+                    limit: 100
+                });
+            } else {
+                messages = await api.getMessages(100);
+            }
+            
+            state.messages = messages;
+            render.messages();
+            
+            // Load rooms and users
+            const rooms = await api.getRooms();
+            state.rooms = rooms;
+            render.rooms();
+            
+            const users = await api.getUsers();
+            state.users = users;
+            render.users();
+            
+            hideLoaders();
+        }
+        
+        function showLoaders() {
+            elements.messagesLoader.style.display = 'block';
+            elements.roomsLoader.style.display = 'block';
+            elements.usersLoader.style.display = 'block';
+        }
+        
+        function hideLoaders() {
+            elements.messagesLoader.style.display = 'none';
+            elements.roomsLoader.style.display = 'none';
+            elements.usersLoader.style.display = 'none';
+        }
+        
+        // Event Listeners
+        elements.refreshBtn.addEventListener('click', loadData);
+        
+        elements.applyFilters.addEventListener('click', () => {
+            state.filters.status = elements.statusFilter.value;
+            state.filters.room = elements.roomFilter.value;
+            state.filters.user = elements.userFilter.value;
+            state.currentPage = 1; // Reset to first page when filtering
+            loadData();
+        });
+        
+        elements.resetStatsBtn.addEventListener('click', async () => {
+            const result = await api.resetStats();
+            if (result.success) {
+                loadData();
+            }
+        });
+        
+        // Auto-refresh every 10 seconds
+        setInterval(loadData, 10000);
+        
+        // Initial load
+        document.addEventListener('DOMContentLoaded', loadData);
+    </script>
+</body>
+</html> 

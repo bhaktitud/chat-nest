@@ -205,9 +205,53 @@
         .message-history-toggle:hover {
             text-decoration: underline;
         }
+        .admin-link {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background-color: #2196F3;
+            color: white;
+            padding: 8px 12px;
+            border-radius: 4px;
+            text-decoration: none;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .admin-link:hover {
+            background-color: #0b7dda;
+        }
+        .connection-status {
+            margin-left: 10px;
+            font-size: 0.8rem;
+            color: #666;
+        }
+        .status-online {
+            color: #4CAF50;
+        }
+        .status-offline {
+            color: #ccc;
+        }
+        .message.sent.pending {
+            background-color: #e8f5e9;
+            border-left: 3px solid #4CAF50;
+            opacity: 0.8;
+        }
+        .pending-indicator {
+            font-style: italic;
+            color: #666;
+            font-size: 0.8rem;
+        }
     </style>
 </head>
 <body>
+    <a href="/queue-dashboard.html" class="admin-link">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path>
+        </svg>
+        Queue Dashboard
+    </a>
     <div class="container">
         <h1>NestJS Chat Engine</h1>
         
@@ -288,6 +332,8 @@
             let typingTimeout;
             let messageHistory = [];
             let showMessageHistory = false;
+            let offlineQueue = JSON.parse(localStorage.getItem('offlineMessageQueue') || '[]');
+            let isOnline = navigator.onLine;
             
             // Tab switching
             tabs.forEach(tab => {
@@ -442,6 +488,7 @@
                 socket.off('roomCreateSuccess');
                 socket.off('error');
                 socket.off('disconnect');
+                socket.off('ping');
 
                 // Listen for messages
                 socket.on('message', (message) => {
@@ -513,6 +560,12 @@
                 socket.on('disconnect', () => {
                     console.log('Disconnected from server');
                 });
+                
+                // Handle heartbeat ping from server
+                socket.on('ping', () => {
+                    console.debug('Received heartbeat ping from server');
+                    socket.emit('pong');
+                });
             }
             
             // Check if a date is today
@@ -527,69 +580,46 @@
             // Initialize by fetching available rooms
             fetchAvailableRooms();
             
-            // Handle joining a room
-            joinBtn.addEventListener('click', () => {
-                username = document.getElementById('username').value.trim();
-                currentRoom = roomSelect.value;
-                
-                if (!username) {
-                    alert('Please enter a username');
-                    return;
-                }
-                
-                joinRoom(username, currentRoom);
-            });
+            // Sanitize input to prevent XSS
+            function sanitizeInput(input) {
+                const div = document.createElement('div');
+                div.textContent = input;
+                return div.innerHTML;
+            }
             
-            // Handle creating a room
-            createRoomBtn.addEventListener('click', () => {
-                username = document.getElementById('createUsername').value.trim();
-                const roomId = document.getElementById('roomId').value.trim();
-                const roomName = document.getElementById('roomName').value.trim();
+            // Update the sendMessage function to sanitize input
+            function sendMessage() {
+                const message = messageInput.value.trim();
                 
-                if (!username) {
-                    createRoomError.textContent = 'Please enter a username';
-                    createRoomError.style.display = 'block';
-                    return;
-                }
-                
-                if (!roomId) {
-                    createRoomError.textContent = 'Please enter a room ID';
-                    createRoomError.style.display = 'block';
-                    return;
-                }
-                
-                if (!roomName) {
-                    createRoomError.textContent = 'Please enter a room name';
-                    createRoomError.style.display = 'block';
-                    return;
-                }
-                
-                // Validate room ID format (letters, numbers, hyphens only)
-                if (!/^[a-z0-9-]+$/.test(roomId)) {
-                    createRoomError.textContent = 'Room ID can only contain lowercase letters, numbers, and hyphens';
-                    createRoomError.style.display = 'block';
-                    return;
-                }
-                
-                // Connect to server
-                socket = io('http://localhost:3000');
-                
-                socket.on('connect', () => {
-                    setupSocketListeners();
+                if (message) {
+                    // Sanitize the message
+                    const sanitizedMessage = sanitizeInput(message);
                     
-                    // Create room
-                    socket.emit('createRoom', { roomId, roomName });
-                    
-                    // Listen for room creation success
-                    socket.once('roomCreateSuccess', (room) => {
-                        // Auto-join the room
-                        joinRoom(username, room.id);
-                    });
-                });
-            });
+                    if (!isOnline) {
+                        // Queue message if offline
+                        queueOfflineMessage(sanitizedMessage);
+                        messageInput.value = '';
+                        messageInput.focus();
+                    } else if (socket && socket.connected) {
+                        // Send directly if online
+                        socket.emit('sendMessage', { message: sanitizedMessage });
+                        messageInput.value = '';
+                        messageInput.focus();
+                    } else {
+                        // Queue if socket not connected
+                        queueOfflineMessage(sanitizedMessage);
+                        messageInput.value = '';
+                        messageInput.focus();
+                    }
+                }
+            }
             
-            // Join room function
+            // Update the joinRoom function to sanitize username
             function joinRoom(user, room) {
+                // Sanitize the username
+                const sanitizedUsername = sanitizeInput(user);
+                username = sanitizedUsername;
+                
                 // Clear message history before joining new room
                 messageHistory = [];
                 
@@ -634,6 +664,112 @@
                 }
             }
             
+            // Update the handleJoining function
+            joinBtn.addEventListener('click', () => {
+                const rawUsername = document.getElementById('username').value.trim();
+                currentRoom = roomSelect.value;
+                
+                if (!rawUsername) {
+                    alert('Please enter a username');
+                    return;
+                }
+                
+                // Validate username
+                if (rawUsername.length < 3 || rawUsername.length > 20) {
+                    alert('Username must be between 3 and 20 characters');
+                    return;
+                }
+                
+                if (!/^[a-zA-Z0-9_-]+$/.test(rawUsername)) {
+                    alert('Username can only contain letters, numbers, underscores and hyphens');
+                    return;
+                }
+                
+                // Sanitize the username
+                username = sanitizeInput(rawUsername);
+                
+                joinRoom(username, currentRoom);
+            });
+            
+            // Update the create room function
+            createRoomBtn.addEventListener('click', () => {
+                const rawUsername = document.getElementById('createUsername').value.trim();
+                const roomId = document.getElementById('roomId').value.trim();
+                const roomName = document.getElementById('roomName').value.trim();
+                
+                if (!rawUsername) {
+                    createRoomError.textContent = 'Please enter a username';
+                    createRoomError.style.display = 'block';
+                    return;
+                }
+                
+                // Validate username
+                if (rawUsername.length < 3 || rawUsername.length > 20) {
+                    createRoomError.textContent = 'Username must be between 3 and 20 characters';
+                    createRoomError.style.display = 'block';
+                    return;
+                }
+                
+                if (!/^[a-zA-Z0-9_-]+$/.test(rawUsername)) {
+                    createRoomError.textContent = 'Username can only contain letters, numbers, underscores and hyphens';
+                    createRoomError.style.display = 'block';
+                    return;
+                }
+                
+                if (!roomId) {
+                    createRoomError.textContent = 'Please enter a room ID';
+                    createRoomError.style.display = 'block';
+                    return;
+                }
+                
+                if (!roomName) {
+                    createRoomError.textContent = 'Please enter a room name';
+                    createRoomError.style.display = 'block';
+                    return;
+                }
+                
+                // Validate room ID format (letters, numbers, hyphens only)
+                if (!/^[a-z0-9-]+$/.test(roomId)) {
+                    createRoomError.textContent = 'Room ID can only contain lowercase letters, numbers, and hyphens';
+                    createRoomError.style.display = 'block';
+                    return;
+                }
+                
+                // Validate room name
+                if (roomName.length < 3 || roomName.length > 30) {
+                    createRoomError.textContent = 'Room name must be between 3 and 30 characters';
+                    createRoomError.style.display = 'block';
+                    return;
+                }
+                
+                // Sanitize inputs
+                username = sanitizeInput(rawUsername);
+                const sanitizedRoomId = sanitizeInput(roomId);
+                const sanitizedRoomName = sanitizeInput(roomName);
+                
+                // Connect to server
+                socket = io('http://localhost:3000');
+                
+                socket.on('connect', () => {
+                    setupSocketListeners();
+                    
+                    // Create room with sanitized inputs
+                    socket.emit('createRoom', { 
+                        roomId: sanitizedRoomId, 
+                        roomName: sanitizedRoomName 
+                    });
+                    
+                    // Listen for room creation success
+                    socket.once('roomCreateSuccess', (room) => {
+                        // Auto-join the room
+                        joinRoom(username, room.id);
+                    });
+                });
+            });
+            
+            // Handle leaving room
+            leaveBtn.addEventListener('click', leaveRoom);
+            
             // Handle sending messages
             sendBtn.addEventListener('click', sendMessage);
             messageInput.addEventListener('keypress', (e) => {
@@ -659,19 +795,6 @@
                 }
             });
             
-            function sendMessage() {
-                const message = messageInput.value.trim();
-                
-                if (message && socket) {
-                    socket.emit('sendMessage', { message });
-                    messageInput.value = '';
-                    messageInput.focus();
-                }
-            }
-            
-            // Handle leaving room
-            leaveBtn.addEventListener('click', leaveRoom);
-            
             // Add message to the UI
             function addMessageToUI(message) {
                 const messageElement = document.createElement('div');
@@ -680,7 +803,7 @@
                 if (message.isSystem || message.user === 'system') {
                     messageElement.className = 'message system';
                 } else if (message.user === username) {
-                    messageElement.className = 'message sent';
+                    messageElement.className = `message sent ${message.isPending ? 'pending' : ''}`;
                 } else {
                     messageElement.className = 'message received';
                 }
@@ -696,6 +819,14 @@
                 const textSpan = document.createElement('span');
                 textSpan.textContent = message.text;
                 messageElement.appendChild(textSpan);
+                
+                // Add pending indicator if applicable
+                if (message.isPending) {
+                    const pendingSpan = document.createElement('span');
+                    pendingSpan.className = 'pending-indicator';
+                    pendingSpan.textContent = ' (sending...)';
+                    messageElement.appendChild(pendingSpan);
+                }
                 
                 // Add timestamp
                 if (message.timestamp) {
@@ -797,6 +928,83 @@
                 // Refresh available rooms
                 fetchAvailableRooms();
             }
+            
+            // Offline/online status handling
+            window.addEventListener('online', handleOnlineStatusChange);
+            window.addEventListener('offline', handleOnlineStatusChange);
+            
+            function handleOnlineStatusChange() {
+                isOnline = navigator.onLine;
+                console.log(`Connection status changed: ${isOnline ? 'online' : 'offline'}`);
+                
+                if (isOnline && offlineQueue.length > 0) {
+                    console.log(`Attempting to send ${offlineQueue.length} queued messages...`);
+                    processOfflineQueue();
+                }
+                
+                // Update UI to reflect connection status
+                document.getElementById('connectionStatus').textContent = isOnline ? 'Online' : 'Offline';
+                document.getElementById('connectionStatus').className = isOnline ? 'status-online' : 'status-offline';
+            }
+            
+            function queueOfflineMessage(message) {
+                console.log('Queueing message for offline delivery:', message);
+                offlineQueue.push({
+                    room: currentRoom,
+                    text: message,
+                    timestamp: new Date().toISOString()
+                });
+                
+                localStorage.setItem('offlineMessageQueue', JSON.stringify(offlineQueue));
+                
+                // Show in UI as pending
+                addMessageToUI({
+                    id: `offline-${Date.now()}`,
+                    user: username,
+                    text: message,
+                    room: currentRoom,
+                    timestamp: new Date(),
+                    isPending: true
+                });
+            }
+            
+            function processOfflineQueue() {
+                if (!socket || !socket.connected || !currentRoom) {
+                    console.log('Cannot process offline queue: not connected or no room joined');
+                    return;
+                }
+                
+                console.log(`Processing ${offlineQueue.length} queued messages`);
+                
+                // Create a copy of the queue and clear the original
+                const queueToProcess = [...offlineQueue];
+                offlineQueue = [];
+                localStorage.setItem('offlineMessageQueue', JSON.stringify(offlineQueue));
+                
+                // Process each message
+                queueToProcess.forEach(item => {
+                    if (item.room === currentRoom) {
+                        console.log('Sending queued message:', item);
+                        socket.emit('sendMessage', { message: item.text });
+                    } else {
+                        // If message was for a different room, keep it in the queue
+                        offlineQueue.push(item);
+                        localStorage.setItem('offlineMessageQueue', JSON.stringify(offlineQueue));
+                    }
+                });
+            }
+            
+            // Add connection status indicator to UI
+            const connectionStatusHTML = `
+                <div class="connection-status">
+                    <span>Status: </span>
+                    <span id="connectionStatus" class="status-online">Online</span>
+                </div>
+            `;
+            document.querySelector('.chat-header').insertAdjacentHTML('beforeend', connectionStatusHTML);
+            
+            // Initialize connection status
+            handleOnlineStatusChange();
         });
     </script>
 </body>

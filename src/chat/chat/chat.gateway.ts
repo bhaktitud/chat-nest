@@ -4,81 +4,153 @@ import {
   WebSocketServer,
   OnGatewayConnection,
   OnGatewayDisconnect,
+  OnGatewayInit,
   ConnectedSocket,
   MessageBody,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { ChatService } from './chat.service';
+import { Logger, Injectable } from '@nestjs/common';
+import {
+  JoinRoomDto,
+  CreateRoomDto,
+  MessageDto,
+  TypingDto,
+  RoomIdDto,
+} from '../dto/chat.dto';
+import { RoomData, UserTyping } from '../interfaces/chat.interfaces';
+import { v4 as uuidv4 } from 'uuid';
+
+// Add rate limiting related code
+interface RateLimitInfo {
+  count: number;
+  firstRequest: number;
+  blocked: boolean;
+}
 
 @WebSocketGateway({
   cors: {
     origin: '*',
   },
 })
-export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
+@Injectable()
+export class ChatGateway
+  implements OnGatewayConnection, OnGatewayDisconnect, OnGatewayInit
+{
   @WebSocketServer() server: Server;
+  private readonly logger = new Logger(ChatGateway.name);
+  private heartbeatInterval = 30000; // 30 seconds
+  private heartbeatTimeout = 10000; // 10 seconds
+  private heartbeatTimers: Map<string, NodeJS.Timeout> = new Map();
+
+  // Rate limiting config
+  private messageLimits: Map<string, RateLimitInfo> = new Map();
+  private readonly RATE_LIMIT_WINDOW = 60000; // 1 minute in ms
+  private readonly RATE_LIMIT_MAX_MESSAGES = 30; // Max 30 messages per minute
+  private readonly RATE_LIMIT_BLOCK_DURATION = 120000; // 2 minutes block if exceeded
 
   constructor(private readonly chatService: ChatService) {}
 
+  afterInit() {
+    this.logger.log('WebSocket Gateway initialized');
+
+    // Start heartbeat interval
+    setInterval(() => this.sendHeartbeat(), this.heartbeatInterval);
+  }
+
   handleConnection(client: Socket) {
-    console.log(`Client connected: ${client.id}`);
+    this.logger.log(`Client connected: ${client.id}`);
+    // Setup heartbeat check for this client
+    this.setupHeartbeatCheck(client);
   }
 
   async handleDisconnect(client: Socket) {
-    try {
-      console.log(`Client disconnected: ${client.id}`);
-      const user = this.chatService.getUser(client.id);
+    this.logger.log(`Client disconnected: ${client.id}`);
+    const user = this.chatService.getUserBySocketId(client.id);
 
-      if (user && user.room) {
-        // Set user as offline
-        await this.chatService.setUserOnlineStatus(client.id, false);
+    // Clear any heartbeat timers
+    this.clearHeartbeatTimer(client.id);
 
-        // Notify room that user went offline
-        this.server.to(user.room).emit('userStatus', {
-          userId: client.id,
-          username: user.username,
-          isOnline: false,
-        });
-
-        // Add system message about the user leaving
-        try {
-          const leaveMessage = await this.chatService.addSystemMessage(
-            user.room,
-            `${user.username} has left the chat.`,
-          );
-
-          // Broadcast the leave message
+    if (user) {
+      try {
+        // Handle user leaving the room and going offline
+        const removedUser = await this.chatService.removeUser(user.id);
+        if (removedUser) {
+          // Notify other users in the room
           this.server.to(user.room).emit('message', {
-            id: leaveMessage.id,
-            user: leaveMessage.user,
-            text: leaveMessage.text,
-            timestamp: leaveMessage.timestamp,
-            isSystem: leaveMessage.isSystem,
+            id: uuidv4(),
+            user: 'system',
+            text: `${user.username} has left the chat`,
+            room: user.room,
+            timestamp: new Date(),
+            isSystem: true,
           });
-        } catch (error) {
-          console.error('Error sending leave message:', error);
+
+          // Send updated user list to clients
+          const usersInRoom = this.chatService.getUsersInRoom(user.room);
+          this.server.to(user.room).emit('roomData', {
+            room: user.room,
+            users: usersInRoom,
+          } as RoomData);
         }
-
-        // Update room data
-        this.server.to(user.room).emit('roomData', {
-          room: user.room,
-          users: this.chatService
-            .getUsersInRoom(user.room)
-            .filter((u) => u.id !== client.id),
-        });
+      } catch (err) {
+        const error = err as Error;
+        this.logger.error(`Error in handleDisconnect: ${error.message}`);
       }
-
-      // Finally remove user from our storage when they're fully disconnected
-      await this.chatService.removeUser(client.id);
-    } catch (error) {
-      console.error('Error in handleDisconnect:', error);
     }
+  }
+
+  /**
+   * Send heartbeat ping to all clients
+   */
+  private sendHeartbeat() {
+    this.logger.debug('Sending heartbeat to all clients');
+    this.server.emit('ping');
+  }
+
+  /**
+   * Setup heartbeat check for a client
+   */
+  private setupHeartbeatCheck(client: Socket) {
+    // Clear any existing timer
+    this.clearHeartbeatTimer(client.id);
+
+    // Set up pong listener
+    client.on('pong', () => {
+      this.clearHeartbeatTimer(client.id);
+      this.logger.debug(`Received pong from client: ${client.id}`);
+    });
+
+    // Set timeout for this client
+    const timer = setTimeout(() => {
+      this.logger.warn(`Client ${client.id} heartbeat timeout - disconnecting`);
+      client.disconnect(true);
+    }, this.heartbeatTimeout);
+
+    this.heartbeatTimers.set(client.id, timer);
+  }
+
+  /**
+   * Clear heartbeat timer for a client
+   */
+  private clearHeartbeatTimer(clientId: string) {
+    const timer = this.heartbeatTimers.get(clientId);
+    if (timer) {
+      clearTimeout(timer);
+      this.heartbeatTimers.delete(clientId);
+    }
+  }
+
+  @SubscribeMessage('pong')
+  handlePong(@ConnectedSocket() client: Socket) {
+    // When we receive a pong from client, reset their heartbeat timer
+    this.setupHeartbeatCheck(client);
   }
 
   @SubscribeMessage('join')
   async handleJoin(
     @ConnectedSocket() client: Socket,
-    @MessageBody() payload: { roomId: string; username: string },
+    @MessageBody() payload: JoinRoomDto,
   ) {
     try {
       const { roomId, username } = payload;
@@ -102,18 +174,18 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       client.join(roomId);
 
       // Notify the room that the user has joined
-      const joinMessage = await this.chatService.addSystemMessage(
-        roomId,
-        `${username} has joined the chat.`,
-      );
+      // const joinMessage = await this.chatService.addSystemMessage(
+      //   roomId,
+      //   `${username} has joined the chat.`,
+      // );
 
-      this.server.to(roomId).emit('message', {
-        id: joinMessage.id,
-        user: joinMessage.user,
-        text: joinMessage.text,
-        timestamp: joinMessage.timestamp,
-        isSystem: joinMessage.isSystem,
-      });
+      // this.server.to(roomId).emit('message', {
+      //   id: joinMessage.id,
+      //   user: joinMessage.user,
+      //   text: joinMessage.text,
+      //   timestamp: joinMessage.timestamp,
+      //   isSystem: joinMessage.isSystem,
+      // });
 
       // Send recent messages history to the user
       const messageHistory = await this.chatService.getMessageHistory(roomId);
@@ -124,9 +196,9 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.server.to(roomId).emit('roomData', {
         room: roomId,
         users: roomUsers,
-      });
+      } as RoomData);
     } catch (error) {
-      console.error('Error in handleJoin:', error);
+      this.logger.error('Error in handleJoin:', error);
       client.emit('error', {
         message: 'An error occurred while joining the room.',
       });
@@ -136,14 +208,30 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @SubscribeMessage('sendMessage')
   async handleMessage(
     @ConnectedSocket() client: Socket,
-    @MessageBody() payload: { message: string },
+    @MessageBody() payload: MessageDto,
   ) {
+    const user = this.chatService.getUserBySocketId(client.id);
+
+    if (!user) {
+      client.emit('error', { message: 'User not found' });
+      return;
+    }
+
+    // Check rate limiting
+    if (this.isRateLimited(user.id)) {
+      client.emit('error', {
+        message:
+          'You are sending messages too quickly. Please wait before sending more messages.',
+      });
+      return;
+    }
+
     try {
-      console.log('Received message:', payload);
+      this.logger.debug('Received message:', payload);
       const user = this.chatService.getUserBySocketId(client.id);
 
       if (!user) {
-        console.error('User not found for socket ID:', client.id);
+        this.logger.error('User not found for socket ID:', client.id);
         return;
       }
 
@@ -155,7 +243,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         userId: client.id,
         username: user.username,
         isTyping: false,
-      });
+      } as UserTyping);
 
       // Add message to queue
       const newMessage = await this.chatService.addMessage({
@@ -165,7 +253,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         isSystem: false,
       });
 
-      console.log('Sending message to room:', user.room, newMessage);
+      this.logger.debug('Sending message to room:', user.room, newMessage);
 
       // Broadcast message to the room
       this.server.to(user.room).emit('message', {
@@ -176,20 +264,20 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         isSystem: newMessage.isSystem,
       });
     } catch (error) {
-      console.error('Error handling message:', error);
+      this.logger.error('Error handling message:', error);
     }
   }
 
   @SubscribeMessage('typing')
   async handleTyping(
     @ConnectedSocket() client: Socket,
-    @MessageBody() payload: { isTyping: boolean },
+    @MessageBody() payload: TypingDto,
   ) {
     try {
       const user = this.chatService.getUserBySocketId(client.id);
 
       if (!user) {
-        console.error('User not found for socket ID:', client.id);
+        this.logger.error('User not found for socket ID:', client.id);
         return;
       }
 
@@ -201,23 +289,26 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         userId: client.id,
         username: user.username,
         isTyping: payload.isTyping,
-      });
+      } as UserTyping);
     } catch (error) {
-      console.error('Error handling typing event:', error);
+      this.logger.error('Error handling typing event:', error);
     }
   }
 
   @SubscribeMessage('createRoom')
   async handleCreateRoom(
     @ConnectedSocket() client: Socket,
-    @MessageBody() payload: { roomId: string; roomName: string },
+    @MessageBody() payload: CreateRoomDto,
   ) {
     try {
       // Use getUserBySocketId instead of getUser
       const user = this.chatService.getUserBySocketId(client.id);
 
       if (!user) {
-        console.log('User not found when creating room, client ID:', client.id);
+        this.logger.log(
+          'User not found when creating room, client ID:',
+          client.id,
+        );
 
         // Get username from client
         const username = payload.roomId?.split('-')[0] || 'Anonymous';
@@ -238,10 +329,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         return;
       }
 
-      // Create room
+      // Create room - with the correct parameter structure
       const newRoom = await this.chatService.createRoom({
-        id: payload.roomId.toLowerCase().replace(/\s+/g, '-'),
-        name: payload.roomName,
+        roomId: payload.roomId.toLowerCase().replace(/\s+/g, '-'),
+        roomName: payload.roomName,
         createdBy: user.username,
       });
 
@@ -269,7 +360,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const rooms = await this.chatService.getAllRooms();
       client.emit('availableRooms', rooms);
     } catch (error) {
-      console.error('Error fetching rooms:', error);
+      this.logger.error('Error fetching rooms:', error);
       client.emit('error', { message: 'Error fetching rooms' });
     }
   }
@@ -277,7 +368,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @SubscribeMessage('getMessageHistory')
   async handleGetMessageHistory(
     @ConnectedSocket() client: Socket,
-    @MessageBody() payload: { room: string },
+    @MessageBody() payload: RoomIdDto,
   ) {
     try {
       const messageHistory = await this.chatService.getMessagesForRoom(
@@ -285,7 +376,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       );
       client.emit('messageHistory', messageHistory);
     } catch (error) {
-      console.error('Error fetching message history:', error);
+      this.logger.error('Error fetching message history:', error);
       client.emit('error', { message: 'Error fetching message history' });
     }
   }
@@ -307,17 +398,17 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       client.leave(roomId);
 
       // Send a message that the user has left the chat
-      const systemMessage = {
-        user: {
-          id: 'system',
-          username: 'System',
-        },
-        text: `${user.username} has left the chat.`,
-        timestamp: new Date().toISOString(),
-        type: 'system',
-      };
+      // const systemMessage: SystemMessage = {
+      //   user: {
+      //     id: 'system',
+      //     username: 'System',
+      //   },
+      //   text: `${user.username} has left the chat.`,
+      //   timestamp: new Date().toISOString(),
+      //   type: 'system',
+      // };
 
-      this.server.to(roomId).emit('message', systemMessage);
+      // this.server.to(roomId).emit('message', systemMessage);
 
       // Get updated users in the room and broadcast
       const usersInRoom = this.chatService.getUsersInRoom(roomId);
@@ -326,13 +417,71 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.server.to(roomId).emit('roomData', {
         room: roomId,
         users: updatedUsers,
-      });
+      } as RoomData);
 
       // Update the user's status without removing them completely
       // This keeps their connection alive but removes them from the room
       await this.chatService.removeUserFromRoom(user.id, roomId);
     } catch (error) {
-      console.error('Error in handleLeaveRoom:', error);
+      this.logger.error('Error in handleLeaveRoom:', error);
     }
+  }
+
+  /**
+   * Check if a user is rate limited
+   */
+  private isRateLimited(userId: string): boolean {
+    const now = Date.now();
+
+    // Check if user is currently in a blocked state
+    const userLimit = this.messageLimits.get(userId);
+    if (userLimit?.blocked) {
+      // Check if block duration has expired
+      if (now - userLimit.firstRequest > this.RATE_LIMIT_BLOCK_DURATION) {
+        // Reset rate limit for this user
+        this.messageLimits.set(userId, {
+          count: 1,
+          firstRequest: now,
+          blocked: false,
+        });
+        return false;
+      }
+      return true;
+    }
+
+    if (!userLimit) {
+      // First message from this user
+      this.messageLimits.set(userId, {
+        count: 1,
+        firstRequest: now,
+        blocked: false,
+      });
+      return false;
+    }
+
+    // Check if the rate limit window has expired
+    if (now - userLimit.firstRequest > this.RATE_LIMIT_WINDOW) {
+      // Reset counter for new window
+      this.messageLimits.set(userId, {
+        count: 1,
+        firstRequest: now,
+        blocked: false,
+      });
+      return false;
+    }
+
+    // Increment counter
+    userLimit.count++;
+
+    // Check if user has exceeded rate limit
+    if (userLimit.count > this.RATE_LIMIT_MAX_MESSAGES) {
+      userLimit.blocked = true;
+      this.logger.warn(
+        `Rate limit exceeded for user ${userId}. Blocking for ${this.RATE_LIMIT_BLOCK_DURATION / 1000} seconds.`,
+      );
+      return true;
+    }
+
+    return false;
   }
 }
